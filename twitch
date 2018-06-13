@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+
+from sys import stderr
+
+def error(message):
+    print(message + ", exiting.", file=stderr)
+    exit(-1)
+
+if __name__ != "__main__":
+    error("Not a module")
+
+import requests
+import subprocess
+from os import environ, path
+
+def get_oath_key():
+    with open(path.join(environ["HOME"], ".twitch_keys")) as file_with_key:
+        return file_with_key.readlines()[0].strip()
+
+defaultQuality = "best"
+
+oauthKey = get_oath_key()
+
+headers = {"Accept": "application/vnd.twitchtv.v5+json",
+           "Authorization": "OAuth " + oauthKey}
+
+try:
+    followedRequest = requests.get("https://api.twitch.tv/kraken/streams/followed", headers=headers)
+except:
+    error("Connection error")
+
+if followedRequest.status_code != 200:
+    error("Bad request, check your Oath maybe")
+
+followedDict = followedRequest.json()
+
+print("Streams online: " + str(followedDict['_total']))
+
+if followedDict['_total'] == 0:
+	exit(-1)
+
+order = 1
+for stream in followedDict['streams']:
+    print(str(order) + ".", end=' ')
+    print(stream['channel']['display_name'], end=' | ')
+    print(stream['game'], end=' | ')
+    print("V: " + str(stream['viewers']))
+    print("Desc: " + stream['channel']['status'], end='\n\n')
+    order += 1
+chosenStreamNum = input("Open stream? (give number and enter): ")
+try:
+    chosenStreamNum = int(chosenStreamNum)
+except:
+    error("Invalid value")
+
+if not 0 < chosenStreamNum <= followedDict['_total']:
+    error("Invalid value")
+
+chosenQuality = input("Default quality (best)? Y/N, <RET> ")
+if chosenQuality in ('n', 'N'):
+    stdout = subprocess.run("streamlink --twitch-oauth-token " + \
+                            oauthKey + \
+                            " twitch.tv/" + followedDict['streams'][chosenStreamNum - 1]['channel']['name'],
+                            stdout=subprocess.PIPE, shell=True, encoding="ASCII").stdout
+    print("Choose quality (default \'best\' <- press enter)")
+    chosenQuality = input("Available: " + " ".join(stdout.splitlines()[3].split(' ')[2:]) + ": ")
+elif chosenQuality in ('', 'y', 'Y'):
+    chosenQuality = defaultQuality
+else:
+    print("Invalid key, exiting.")
+    exit(-1)
+
+try:
+    subprocess.run("nohup streamlink --twitch-oauth-token " + \
+                   oauthKey + \
+                   " twitch.tv/" + \
+                   followedDict['streams'][chosenStreamNum - 1]['channel']['name'] + \
+                   " " + chosenQuality + " &> /dev/null &",
+                   shell=True)
+    print("Starting twitch stream in a video player..")
+except:
+    print("Interrupted, exiting.")
